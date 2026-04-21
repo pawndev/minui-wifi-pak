@@ -305,6 +305,59 @@ write_config() {
             cached_ssid="$(sed -n '1p' "$PAK_DIR/res/bssid_cache.txt")"
             cached_freq="$(sed -n '2p' "$PAK_DIR/res/bssid_cache.txt")"
         fi
+
+        static_ip=""
+        static_gw=""
+        while read -r _pre; do
+            _pre="$(echo "$_pre" | xargs)"
+            [ -z "$_pre" ] && continue
+            echo "$_pre" | grep -q "^#" && continue
+            echo "$_pre" | grep -q ":" || continue
+            _pre_ssid="$(echo "$_pre" | cut -d: -f1 | xargs)"
+            [ -z "$_pre_ssid" ] && continue
+            _pre_ip="$(echo "$_pre" | cut -d: -f3 | xargs)"
+            _pre_gw="$(echo "$_pre" | cut -d: -f4 | xargs)"
+            if echo "$_pre_ip" | grep -q "/"; then
+                static_ip="$_pre_ip"
+                static_gw="$_pre_gw"
+            fi
+            break
+        done <"$SDCARD_PATH/wifi.txt"
+        unset _pre _pre_ssid _pre_ip _pre_gw
+
+        if [ "$PLATFORM" != "rg35xxplus" ]; then
+            if [ -n "$static_ip" ]; then
+                printf 'IP=%s\nGW=%s\n' "$static_ip" "$static_gw" >"$PAK_DIR/res/static_ip.conf"
+                echo "Static IP configured: $static_ip via $static_gw"
+            else
+                rm -f "$PAK_DIR/res/static_ip.conf"
+            fi
+        fi
+
+        if [ "$PLATFORM" = "rg35xxplus" ]; then
+            {
+                echo "---"
+                echo "network:"
+                echo "    version: 2"
+                echo "    renderer: networkd"
+                echo "    wifis:"
+                echo "        wlan0:"
+                if [ -n "$static_ip" ]; then
+                    echo "            dhcp4: false"
+                    echo "            addresses:"
+                    echo "                - $static_ip"
+                    if [ -n "$static_gw" ]; then
+                        echo "            routes:"
+                        echo "                - to: default"
+                        echo "                  via: $static_gw"
+                    fi
+                else
+                    echo "            dhcp4: true"
+                fi
+                echo "            access-points:"
+            } >"$PAK_DIR/res/netplan.yaml"
+        fi
+
         echo "" >>"$SDCARD_PATH/wifi.txt"
         while read -r line; do
             line="$(echo "$line" | xargs)"
@@ -323,7 +376,13 @@ write_config() {
             fi
 
             ssid="$(echo "$line" | cut -d: -f1 | xargs)"
-            psk="$(echo "$line" | cut -d: -f2- | xargs)"
+            _f3="$(echo "$line" | cut -d: -f3 | xargs)"
+            if echo "$_f3" | grep -q "/"; then
+                psk="$(echo "$line" | cut -d: -f2 | xargs)"
+            else
+                psk="$(echo "$line" | cut -d: -f2- | xargs)"
+            fi
+            unset _f3
             if [ -z "$ssid" ]; then
                 continue
             fi
@@ -337,7 +396,7 @@ write_config() {
                     echo "    priority=1"
                     priority_used=true
                 fi
-                if [ "$PLATFORM" != "rg35xxplus" ] && [ -n "$cached_freq" ] && [ "$ssid" = "$cached_ssid" ]; then
+                if [ -n "$cached_freq" ] && [ "$ssid" = "$cached_ssid" ]; then
                     echo "    scan_freq=$cached_freq"
                 fi
                 if [ -z "$psk" ]; then
