@@ -46,9 +46,9 @@ In the root of your SD card, place a `wifi.txt` file. This file should store net
 
 Format:
 
-- colon (`:`) delimited key/value pair, where the key is the network name, and the value is the credential for the network.
+- colon (`:`) delimited fields, where the first field is the network name and the second is the password.
 - Empty lines and lines beginning with hashes (`#`) are ignored
-- Whitespace is stripped from network names and credentials
+- Whitespace is stripped from all fields
 
 The following is an example:
 
@@ -59,6 +59,37 @@ Minui Rules:shauninman-too
 # the previous newline is ignored
 madison:CatmillaNumber1
 ```
+
+### Static IP (optional)
+
+To skip DHCP and assign a fixed IP address, add two extra fields to a network entry: the IP address in CIDR notation and the gateway.
+
+```
+SSID:Password:IP/prefix:Gateway
+```
+
+Example:
+
+```shell
+# home network with static IP
+Minui Rules:shauninman-too:192.168.1.100/24:192.168.1.1
+```
+
+> [!NOTE]
+> Static IP is applied to the **first network** in `wifi.txt` only. Additional networks always use DHCP.
+
+> [!NOTE]
+> When using a static IP, **passwords cannot contain colons** (`:`) since the third colon is used as the IP field separator. Networks using DHCP (no IP field) are not subject to this restriction.
+
+> [!NOTE]
+> DNS is not configured automatically when using a static IP. If you need name resolution, set up `/etc/resolv.conf` manually on your device.
+
+> [!NOTE]
+> Static IP is not supported on `rg35xxplus` via `netplan` when no gateway is provided — include the gateway field to generate a valid route.
+
+#### RG-35XX Plus static IP
+
+On `rg35xxplus`, the static IP is configured directly in the netplan YAML (`dhcp4: false`). No manual steps are required — the same `wifi.txt` format applies.
 
 ## Screenshots
 

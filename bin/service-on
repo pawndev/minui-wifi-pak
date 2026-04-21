@@ -13,6 +13,29 @@ fi
 export PATH="$PAK_DIR/bin/$architecture:$PAK_DIR/bin/$PLATFORM:$PAK_DIR/bin:$PATH"
 export LD_LIBRARY_PATH="$PAK_DIR/lib/$PLATFORM:$PAK_DIR/lib:$LD_LIBRARY_PATH"
 
+apply_static_ip() {
+    _wpa_cli="${1:-wpa_cli}"
+    _ip="$(grep '^IP=' "$PAK_DIR/res/static_ip.conf" | cut -d'=' -f2)"
+    _gw="$(grep '^GW=' "$PAK_DIR/res/static_ip.conf" | cut -d'=' -f2)"
+
+    for _i in $(seq 1 15); do
+        _state="$("$_wpa_cli" -i wlan0 status 2>/dev/null | grep '^wpa_state=' | cut -d'=' -f2)"
+        [ "$_state" = "COMPLETED" ] && break
+        sleep 1
+    done
+    unset _i
+
+    if [ "$_state" != "COMPLETED" ]; then
+        echo "Static IP: wpa_supplicant did not reach COMPLETED state"
+        return 1
+    fi
+
+    ip addr flush dev wlan0
+    ip addr add "$_ip" dev wlan0
+    [ -n "$_gw" ] && ip route add default via "$_gw" 2>/dev/null || true
+    echo "Static IP applied: $_ip via $_gw"
+}
+
 main() {
     if [ "$PLATFORM" = "tg3040" ] && [ -z "$DEVICE" ]; then
         export DEVICE="brick"
@@ -60,18 +83,26 @@ main() {
 
         ifconfig lo up
         /customer/app/axp_test wifion
-        sleep 2
+        for _i in $(seq 1 10); do
+            [ -e /sys/class/net/wlan0 ] && break
+            sleep 1
+        done
+        unset _i
         ifconfig wlan0 up
         /customer/app/wpa_supplicant -B -D nl80211 -iwlan0 -c /appconfigs/wpa_supplicant.conf
-        ln -sf /dev/null /tmp/udhcpc.log
-        udhcpc -i wlan0 -s /etc/init.d/udhcpc.script &
-
         /customer/app/wpa_cli -i wlan0 reconnect
         iw dev wlan0 set power_save off
+        if [ -f "$PAK_DIR/res/static_ip.conf" ]; then
+            ( apply_static_ip /customer/app/wpa_cli ) &
+        else
+            ln -sf /dev/null /tmp/udhcpc.log
+            udhcpc -i wlan0 -s /etc/init.d/udhcpc.script &
+        fi
     elif [ "$PLATFORM" = "tg5040" ]; then
         killall -15 wpa_supplicant || true
         killall -15 udhcpc || true
         ifconfig wlan0 up || true
+        rm -f /etc/wifi/sockets/wlan0
         wpa_supplicant -B -D nl80211 -iwlan0 -c /etc/wifi/wpa_supplicant.conf -O /etc/wifi/sockets >/tmp/wpa_supplicant.log
         cat /tmp/wpa_supplicant.log
         if grep -q "Delete '/etc/wifi/sockets/wlan0' manually if it is not used anymore" /tmp/wpa_supplicant.log; then
@@ -85,7 +116,11 @@ main() {
             echo "Failed to start wpa_supplicant"
             return 1
         fi
-        udhcpc -i wlan0 -n &
+        if [ -f "$PAK_DIR/res/static_ip.conf" ]; then
+            ( apply_static_ip wpa_cli ) &
+        else
+            udhcpc -i wlan0 -n &
+        fi
     elif [ "$PLATFORM" = "my282" ]; then
         killall -9 wpa_supplicant || true
         killall -9 udhcpc || true
@@ -98,7 +133,11 @@ main() {
             echo "Failed to start wpa_supplicant"
             return 1
         fi
-        ( (udhcpc -i wlan0 -q &) &)
+        if [ -f "$PAK_DIR/res/static_ip.conf" ]; then
+            ( apply_static_ip wpa_cli ) &
+        else
+            ( (udhcpc -i wlan0 -q &) &)
+        fi
     elif [ "$PLATFORM" = "my355" ]; then
         killall -9 wpa_supplicant || true
         killall -9 udhcpc || true
@@ -109,7 +148,11 @@ main() {
             echo "Failed to start wpa_supplicant"
             return 1
         fi
-        ( (udhcpc -i wlan0 -q &) &)
+        if [ -f "$PAK_DIR/res/static_ip.conf" ]; then
+            ( apply_static_ip wpa_cli ) &
+        else
+            ( (udhcpc -i wlan0 -q &) &)
+        fi
     elif [ "$PLATFORM" = "rg35xxplus" ]; then
         ip link set wlan0 up
         iw dev wlan0 set power_save off
