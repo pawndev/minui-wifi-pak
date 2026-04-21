@@ -55,6 +55,34 @@ get_ssid_and_ip() {
     printf "%s\t%s" "$ssid" "$ip_address"
 }
 
+save_bssid_cache() {
+    _ssid=""
+    _freq=""
+
+    for _i in $(seq 1 10); do
+        if [ "$PLATFORM" = "my355" ]; then
+            _status="$(wpa_cli -i wlan0 status 2>/dev/null)"
+            _ssid="$(echo "$_status" | grep '^ssid=' | grep -v bssid | cut -d'=' -f2)"
+            _freq="$(echo "$_status" | grep '^freq=' | cut -d'=' -f2)"
+        else
+            _link="$(iw dev wlan0 link 2>/dev/null)"
+            _ssid="$(echo "$_link" | grep 'SSID:' | cut -d':' -f2- | sed -e 's/^[[:space:]]*//')"
+            _freq="$(echo "$_link" | grep 'freq:' | awk '{print $2}')"
+        fi
+        [ -n "$_ssid" ] && [ -n "$_freq" ] && break
+        sleep 1
+    done
+    unset _i _status _link
+
+    if [ -z "$_ssid" ] || [ -z "$_freq" ]; then
+        echo "BSSID cache: could not get connection info"
+        return 1
+    fi
+
+    printf '%s\n%s\n' "$_ssid" "$_freq" >"$PAK_DIR/res/bssid_cache.txt"
+    echo "BSSID cache saved: ssid=$_ssid freq=$_freq"
+}
+
 main_screen() {
     minui_list_file="/tmp/minui-list"
     rm -f "$minui_list_file" "/tmp/minui-output"
@@ -271,6 +299,12 @@ write_config() {
     if [ "$ENABLING_WIFI" = "true" ]; then
         has_passwords=false
         priority_used=false
+        cached_ssid=""
+        cached_freq=""
+        if [ -f "$PAK_DIR/res/bssid_cache.txt" ]; then
+            cached_ssid="$(sed -n '1p' "$PAK_DIR/res/bssid_cache.txt")"
+            cached_freq="$(sed -n '2p' "$PAK_DIR/res/bssid_cache.txt")"
+        fi
         echo "" >>"$SDCARD_PATH/wifi.txt"
         while read -r line; do
             line="$(echo "$line" | xargs)"
@@ -302,6 +336,9 @@ write_config() {
                 if [ "$priority_used" = false ]; then
                     echo "    priority=1"
                     priority_used=true
+                fi
+                if [ "$PLATFORM" != "rg35xxplus" ] && [ -n "$cached_freq" ] && [ "$ssid" = "$cached_ssid" ]; then
+                    echo "    scan_freq=$cached_freq"
                 fi
                 if [ -z "$psk" ]; then
                     echo "    key_mgmt=NONE"
@@ -414,6 +451,7 @@ wifi_on() {
     if [ "$STATUS" != "up" ]; then
         return 1
     fi
+    ( save_bssid_cache ) &
 }
 
 forget_network_loop() {

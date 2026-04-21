@@ -60,7 +60,11 @@ main() {
 
         ifconfig lo up
         /customer/app/axp_test wifion
-        sleep 2
+        for _i in $(seq 1 10); do
+            [ -e /sys/class/net/wlan0 ] && break
+            sleep 1
+        done
+        unset _i
         ifconfig wlan0 up
         /customer/app/wpa_supplicant -B -D nl80211 -iwlan0 -c /appconfigs/wpa_supplicant.conf
         ln -sf /dev/null /tmp/udhcpc.log

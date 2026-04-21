@@ -13,6 +13,10 @@ echo "$0" "$@"
 cd "$PAK_DIR" || exit 1
 
 main() {
+    if "$BIN_DIR/wifi-enabled" 2>/dev/null; then
+        echo "WiFi already active, skipping initialization"
+        exit 0
+    fi
     "$BIN_DIR/service-on" &
 }
 
